@@ -1,0 +1,13 @@
+# Secrets — never commit the real env file
+.env
+.env.local
+*.env
+!.env.example
+
+# SAML connection artifacts written at runtime
+/saml-connection/*
+!/saml-connection/.gitkeep
+
+# OS / editor cruft
+.DS_Store
+*.swp
