@@ -85,7 +85,7 @@ services:
 
   # Runs Formbricks Prisma migrations before Hub writes tables to the shared DB.
   formbricks-migrate:
-    image: ghcr.io/formbricks/formbricks${FB_IMAGE_REF:-:latest}
+    image: svnix/formbricks${FB_IMAGE_REF:-:latest}
     restart: "no"
     entrypoint: ["sh", "-c"]
     command:
@@ -99,7 +99,7 @@ services:
 
   formbricks:
     restart: always
-    image: ghcr.io/formbricks/formbricks${FB_IMAGE_REF:-:latest}
+    image: svnix/formbricks${FB_IMAGE_REF:-:latest}
     container_name: formbricks
     env_file:
       - path: .env
@@ -128,7 +128,7 @@ services:
 
   # Runs Hub DB migrations (goose + river) before the Hub API starts. Idempotent.
   hub-migrate:
-    image: ghcr.io/formbricks/hub${HUB_IMAGE_REF:-:latest}
+    image: svnix/formbricks-hub${HUB_IMAGE_REF:-:latest}
     restart: "no"
     entrypoint: ["sh", "-c"]
     command:
@@ -144,7 +144,7 @@ services:
   # Formbricks Hub API. Shares the Formbricks database by default.
   hub:
     restart: always
-    image: ghcr.io/formbricks/hub${HUB_IMAGE_REF:-:latest}
+    image: svnix/formbricks-hub${HUB_IMAGE_REF:-:latest}
     depends_on:
       hub-migrate:
         condition: service_completed_successfully

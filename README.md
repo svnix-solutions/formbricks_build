@@ -137,6 +137,49 @@ Password reset and email verification are **disabled** until SMTP is configured.
 Add the `SMTP_*` values and set `EMAIL_VERIFICATION_DISABLED=0` /
 `PASSWORD_RESET_DISABLED=0` in the Komodo Stack **Environment** field, then redeploy.
 
+## File uploads (Backblaze B2)
+
+Formbricks v5 has **no local-disk storage** — it requires S3-compatible object
+storage. Until it's configured, these features are **disabled**: file-upload &
+picture-selection questions, survey/question/background images, and workspace/org
+logos. No compose change is needed (the app reads `S3_*` from `.env` via `env_file`);
+you just set the vars in the Komodo **Environment** field.
+
+**1. Create a B2 bucket + application key.** Note the bucket's endpoint — it encodes
+the region, e.g. `s3.us-west-004.backblazeb2.com`. Create an app key scoped to that
+bucket with read+write.
+
+**2. Set these in the Komodo Environment field** (see `.env.example`):
+
+```bash
+S3_ACCESS_KEY=<B2 keyID>
+S3_SECRET_KEY=<B2 applicationKey>
+S3_REGION=us-west-004                              # the region in your endpoint
+S3_BUCKET_NAME=<bucket>
+S3_ENDPOINT_URL=https://s3.us-west-004.backblazeb2.com
+# S3_FORCE_PATH_STYLE=0   # leave unset for B2 (virtual-hosted style)
+```
+
+**3. Add CORS rules to the bucket** — uploads go **browser → presigned URL → B2
+directly**, so without CORS the browser blocks them. Allow your `WEBAPP_URL` origin
+with `PUT`/`GET`/`HEAD`. Using the B2 CLI:
+
+```bash
+b2 bucket update <bucket> allPrivate --cors-rules '[
+  {
+    "corsRuleName": "formbricks",
+    "allowedOrigins": ["https://forms.example.com"],
+    "allowedOperations": ["s3_put", "s3_get", "s3_head"],
+    "allowedHeaders": ["*"],
+    "exposeHeaders": ["etag"],
+    "maxAgeSeconds": 3600
+  }
+]'
+```
+
+Then redeploy the stack. (B2's S3 API is HTTPS-only and uses v4 signatures, both of
+which Formbricks' AWS SDK client already does — no extra config.)
+
 ## Updating
 
 - **Track latest** (default): redeploy the stack in Komodo — it pulls the newest
