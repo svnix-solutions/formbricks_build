@@ -157,7 +157,9 @@ networks:
   db:
     name: ${DB_NETWORK:-db}
     external: true
-  # Shared with cloudflared / Nginx Proxy Manager, which reach http://formbricks:3000.
+  # Shared with Nginx Proxy Manager only (NOT the cloudflared network): the
+  # tunnel reaches NPM, and NPM forwards to http://formbricks:3000.
+  # Create once: docker network create proxy
   proxy:
-    name: ${PROXY_NETWORK:-cloudflared}
+    name: ${PROXY_NETWORK:-proxy}
     external: true
