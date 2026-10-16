@@ -45,7 +45,7 @@ x-environment: &environment
 
 services:
   formbricks-migrate:
-    image: svnix/formbricks${FB_IMAGE_REF:-:latest}
+    image: ${FB_IMAGE:-svnix/formbricks}${FB_IMAGE_REF:-:latest}
     restart: "no"
     entrypoint: ["sh", "-c"]
     command:
@@ -57,7 +57,7 @@ services:
 
   formbricks:
     restart: always
-    image: svnix/formbricks${FB_IMAGE_REF:-:latest}
+    image: ${FB_IMAGE:-svnix/formbricks}${FB_IMAGE_REF:-:latest}
     container_name: formbricks
     env_file:
       - path: .env
@@ -77,7 +77,7 @@ services:
       SKIP_STARTUP_MIGRATION: "true"
 
   hub-migrate:
-    image: svnix/formbricks-hub${HUB_IMAGE_REF:-:latest}
+    image: ${HUB_IMAGE:-svnix/formbricks-hub}${HUB_IMAGE_REF:-:latest}
     restart: "no"
     entrypoint: ["sh", "-c"]
     command:
@@ -93,7 +93,7 @@ services:
 
   hub:
     restart: always
-    image: svnix/formbricks-hub${HUB_IMAGE_REF:-:latest}
+    image: ${HUB_IMAGE:-svnix/formbricks-hub}${HUB_IMAGE_REF:-:latest}
     depends_on:
       hub-migrate:
         condition: service_completed_successfully

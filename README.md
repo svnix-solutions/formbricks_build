@@ -159,6 +159,7 @@ not a superuser.
 | `FB_DB_HOST` / `FB_DB_PORT` / `FB_DB_NAME` / `FB_DB_USER` | `postgres` / `5432` / `formbricks` / `formbricks` |
 | `REDIS_URL` | `redis://:<redis password>@redis:6379/1` (required) |
 | `DB_NETWORK` | `db` |
+| `FB_IMAGE` / `HUB_IMAGE` | image repos, default `svnix/formbricks` / `svnix/formbricks-hub`. Those are **arm64-only**; on amd64 hosts use `ghcr.io/formbricks/formbricks` / `ghcr.io/formbricks/hub` (multi-arch) |
 | `PROXY_NETWORK` | `proxy`: shared with Nginx Proxy Manager only, not with cloudflared |
 
 Everything else (`WEBAPP_URL`, secrets, SMTP, S3) is the same as `compose.yaml`.
