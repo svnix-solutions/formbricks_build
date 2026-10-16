@@ -1,0 +1,163 @@
+# Formbricks on SHARED datastores.
+#
+# Same app as compose.yaml, minus the bundled postgres and redis: it connects
+# to the node's shared Postgres (svnix-solutions/postgres_build) and Redis
+# (svnix-solutions/redis_build) over the external "db" network. Use this file
+# by setting the Komodo stack's file_paths = ["compose.shared.yaml"].
+#
+# Requirements on the shared Postgres:
+#   - a pgvector-enabled image (pgvector/pgvector:pg17); the Formbricks
+#     migrations run CREATE EXTENSION vector.
+#   - a role and database provisioned once, as superuser:
+#       CREATE ROLE formbricks LOGIN PASSWORD '...';
+#       CREATE DATABASE formbricks OWNER formbricks;
+#       \c formbricks
+#       CREATE EXTENSION IF NOT EXISTS vector;
+#     The extension is created up front because formbricks is not a superuser
+#     and pgvector is not a trusted extension. The migration's
+#     CREATE EXTENSION IF NOT EXISTS then becomes a no-op.
+#
+# Use hex passwords (openssl rand -hex 32): they are embedded in URLs below
+# and are not URL-encoded.
+
+
+x-environment: &environment
+  environment: &app-environment
+    WEBAPP_URL: ${WEBAPP_URL:?WEBAPP_URL is required}
+    NEXTAUTH_URL: ${NEXTAUTH_URL:-${WEBAPP_URL}}
+    DATABASE_URL: "postgresql://${FB_DB_USER:-formbricks}:${FB_DB_PASSWORD:?FB_DB_PASSWORD is required}@${FB_DB_HOST:-postgres}:${FB_DB_PORT:-5432}/${FB_DB_NAME:-formbricks}?schema=public"
+    NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required}
+    ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+    CRON_SECRET: ${CRON_SECRET:?CRON_SECRET is required}
+    # Shared Redis: password-protected, one DB index per app.
+    REDIS_URL: ${REDIS_URL:?REDIS_URL is required, e.g. redis://:<password>@redis:6379/1}
+    HUB_API_KEY: ${HUB_API_KEY:?HUB_API_KEY is required}
+    HUB_API_URL: ${HUB_API_URL:-http://hub:8080}
+    CUBEJS_API_URL: ${CUBEJS_API_URL:-http://cube:4000}
+    CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:?CUBEJS_API_SECRET is required}
+    CUBEJS_JWT_ISSUER: ${CUBEJS_JWT_ISSUER:-formbricks-web}
+    CUBEJS_JWT_AUDIENCE: ${CUBEJS_JWT_AUDIENCE:-formbricks-cube}
+    TAXONOMY_SERVICE_URL: ""
+    TAXONOMY_SERVICE_TOKEN: ""
+    HUB_INTERNAL_API_TOKEN: ""
+    EMAIL_VERIFICATION_DISABLED: ${EMAIL_VERIFICATION_DISABLED:-1}
+    PASSWORD_RESET_DISABLED: ${PASSWORD_RESET_DISABLED:-1}
+
+services:
+  formbricks-migrate:
+    image: svnix/formbricks${FB_IMAGE_REF:-:latest}
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      [
+        'if command -v timeout >/dev/null 2>&1; then timeout 300 node packages/database/dist/scripts/apply-migrations.js; else node packages/database/dist/scripts/apply-migrations.js; fi',
+      ]
+    networks: [default, db]
+    <<: *environment
+
+  formbricks:
+    restart: always
+    image: svnix/formbricks${FB_IMAGE_REF:-:latest}
+    container_name: formbricks
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      formbricks-migrate:
+        condition: service_completed_successfully
+      cube:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FB_PORT:-3000}:3000"
+    networks: [default, db, proxy]
+    volumes:
+      - ./saml-connection:/home/nextjs/apps/web/saml-connection
+    environment:
+      <<: *app-environment
+      SKIP_STARTUP_MIGRATION: "true"
+
+  hub-migrate:
+    image: svnix/formbricks-hub${HUB_IMAGE_REF:-:latest}
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      [
+        'if [ -x /usr/local/bin/goose ] && [ -x /usr/local/bin/river ]; then /usr/local/bin/goose -dir /app/migrations postgres "$$DATABASE_URL" up && /usr/local/bin/river migrate-up --database-url "$$DATABASE_URL"; else echo ''Migration tools (goose/river) not in image.''; exit 1; fi',
+      ]
+    environment:
+      DATABASE_URL: "postgresql://${FB_DB_USER:-formbricks}:${FB_DB_PASSWORD:?FB_DB_PASSWORD is required}@${FB_DB_HOST:-postgres}:${FB_DB_PORT:-5432}/${FB_DB_NAME:-formbricks}?sslmode=disable"
+    networks: [db]
+    depends_on:
+      formbricks-migrate:
+        condition: service_completed_successfully
+
+  hub:
+    restart: always
+    image: svnix/formbricks-hub${HUB_IMAGE_REF:-:latest}
+    depends_on:
+      hub-migrate:
+        condition: service_completed_successfully
+    environment:
+      API_KEY: ${HUB_API_KEY:?HUB_API_KEY is required}
+      DATABASE_URL: "postgresql://${FB_DB_USER:-formbricks}:${FB_DB_PASSWORD:?FB_DB_PASSWORD is required}@${FB_DB_HOST:-postgres}:${FB_DB_PORT:-5432}/${FB_DB_NAME:-formbricks}?sslmode=disable"
+      TAXONOMY_SERVICE_URL: ${TAXONOMY_SERVICE_URL:-}
+      TAXONOMY_SERVICE_TOKEN: ${TAXONOMY_SERVICE_TOKEN:-}
+      HUB_INTERNAL_API_TOKEN: ${HUB_INTERNAL_API_TOKEN:-}
+    networks: [default, db]
+
+  cube:
+    restart: always
+    image: cubejs/cube:v1.6.6
+    command:
+      - sh
+      - -c
+      - |
+        if [ -z "$$CUBEJS_API_SECRET" ]; then
+          echo "CUBEJS_API_SECRET is required for Cube JWT authentication" >&2
+          exit 1
+        fi
+        exec cubejs server
+    depends_on:
+      hub-migrate:
+        condition: service_completed_successfully
+    environment:
+      CUBEJS_DB_TYPE: postgres
+      CUBEJS_DB_HOST: ${FB_DB_HOST:-postgres}
+      CUBEJS_DB_NAME: ${FB_DB_NAME:-formbricks}
+      CUBEJS_DB_USER: ${FB_DB_USER:-formbricks}
+      CUBEJS_DB_PASS: ${FB_DB_PASSWORD:?FB_DB_PASSWORD is required}
+      CUBEJS_DB_PORT: ${FB_DB_PORT:-5432}
+      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:?CUBEJS_API_SECRET is required}
+      CUBEJS_JWT_ISSUER: ${CUBEJS_JWT_ISSUER:-formbricks-web}
+      CUBEJS_JWT_AUDIENCE: ${CUBEJS_JWT_AUDIENCE:-formbricks-cube}
+      CUBEJS_DEFAULT_API_SCOPES: meta,data
+      CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
+    volumes:
+      - ./cube/cube.js:/cube/conf/cube.js:ro
+      - ./cube/schema:/cube/conf/model:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:4000/readyz', (res) => { res.resume(); process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks: [default, db]
+
+networks:
+  # Private network for hub + cube. Owned by this stack.
+  default:
+    name: ${INTERNAL_NETWORK:-formbricks_internal}
+  # Shared Postgres + Redis. Create once: docker network create db
+  db:
+    name: ${DB_NETWORK:-db}
+    external: true
+  # Shared with cloudflared / Nginx Proxy Manager, which reach http://formbricks:3000.
+  proxy:
+    name: ${PROXY_NETWORK:-cloudflared}
+    external: true

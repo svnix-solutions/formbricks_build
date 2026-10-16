@@ -30,6 +30,7 @@ verbatim from the Formbricks 5.1.4 release and mounted into the Cube container.
 
 ```
 compose.yaml           # the stack (Komodo's default file_paths)
+compose.shared.yaml    # same stack on shared postgres_build + redis_build
 .env.example           # template to paste into the Komodo Stack "Environment" field
 cube/                  # Cube config (required by the cube service)
 saml-connection/       # runtime mount for SAML (kept empty via .gitkeep)
@@ -130,6 +131,38 @@ Then in the Cloudflare Zero Trust dashboard (or tunnel config), route
 Visit `https://forms.example.com` — you should land on the Formbricks setup wizard.
 Create the first (owner) account. Self-hosted signup is invite-only by default;
 the first user created via the wizard becomes the owner.
+
+## Shared datastores variant (`compose.shared.yaml`)
+
+`compose.shared.yaml` runs the same app without the bundled `postgres` and
+`redis`. It connects to the node's shared
+[`postgres_build`](https://github.com/svnix-solutions/postgres_build) and
+[`redis_build`](https://github.com/svnix-solutions/redis_build) stacks over the
+external `db` network. Select it with `file_paths = ["compose.shared.yaml"]`.
+
+The shared Postgres must run a pgvector image (`pgvector/pgvector:pg17`).
+Provision the role and database once, as superuser:
+
+```sql
+CREATE ROLE formbricks LOGIN PASSWORD '<hex password>';
+CREATE DATABASE formbricks OWNER formbricks;
+\c formbricks
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+The extension has to exist before the first migration, because `formbricks` is
+not a superuser.
+
+| Variable | Example |
+| --- | --- |
+| `FB_DB_PASSWORD` | hex password from above (required) |
+| `FB_DB_HOST` / `FB_DB_PORT` / `FB_DB_NAME` / `FB_DB_USER` | `postgres` / `5432` / `formbricks` / `formbricks` |
+| `REDIS_URL` | `redis://:<redis password>@redis:6379/1` (required) |
+| `DB_NETWORK` | `db` |
+
+Everything else (`WEBAPP_URL`, secrets, SMTP, S3) is the same as `compose.yaml`.
+Use hex passwords: they are embedded in connection URLs unencoded.
+Backups are handled by the shared Postgres stack's nightly `pg_dumpall`.
 
 ## Email (optional but recommended)
 
